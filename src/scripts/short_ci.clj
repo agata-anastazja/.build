@@ -8,6 +8,7 @@
 (defn get-changes
   []
   (-> (tasks/shell {:out :string} "git diff --name-only HEAD~1")
+      (:out)
       (str/split-lines)))
 
 (defn irrelevant-change?
@@ -39,6 +40,8 @@
   (def regexes
     [#".*.md$"
      #".*.clj$"]) ; ignore clojure files
+
+  (:out (tasks/shell {:out :string} "ls"))
 
   (irrelevant-change? "src/file.png" regexes)
 
