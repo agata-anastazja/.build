@@ -1,5 +1,6 @@
-(require '[clojure.string :as str]
-         '[babashka.tasks :as tasks])
+(ns scripts.short-ci
+  (:require [clojure.string :as str]
+            [babashka.tasks :as tasks]))
 
 (def config
   {:skip-if-only [#".*.md$"]})
