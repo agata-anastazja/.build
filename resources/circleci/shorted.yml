@@ -1,0 +1,16 @@
+version: 2.1
+
+jobs:
+  short:
+    docker:
+      - image: cimg/base
+    steps:
+      - run:
+          name: short circuit CI
+          command: echo "skipping ci"
+
+workflows:
+  version: 2
+  ci:
+    jobs:
+      - short

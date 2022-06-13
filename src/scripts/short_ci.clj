@@ -1,5 +1,6 @@
 (ns scripts.short-ci
   (:require [clojure.string :as str]
+            [clojure.java.io :as io]
             [babashka.tasks :as tasks]))
 
 (def config
@@ -19,22 +20,24 @@
   [change-set regexes]
   (some? (some #(not (irrelevant-change? % regexes)) change-set)))
 
+;; TODO: generate config from clojure 
+(defn write-config [path]
+  (println (slurp (io/resource path))))
+
 (defn main
-  [halting-cmd]
+  []
   (let [{:keys [skip-if-only]} config
         changed-files          (get-changes)]
     (if (relevant? changed-files skip-if-only)
-      (println "Proceeding with CI run.")
+      (do
+        (println "Proceeding with CI run.")
+        (write-config "circleci/actual.yml"))
       (do
         (println "Irrelevant changes - skipping CI run.")
-        (tasks/shell halting-cmd)))))
+        (write-config "circleci/shorted.yml")))))
 
 (when (= *file* (System/getProperty "babashka.file"))
-  (let [halting-cmd (first *command-line-args*)]
-    (when-not halting-cmd
-      (println "Please specify a command to short the CI run.")
-      (System/exit 1))
-    (main halting-cmd)))
+  (main))
 
 (comment
   (def regexes
