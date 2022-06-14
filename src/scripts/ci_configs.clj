@@ -1,69 +1,88 @@
 (ns scripts.ci-configs
-  (:require [clj-yaml.core :as yaml]
-            [clojure.string :as str]
-            [flatland.ordered.map :refer [ordered-map]]))
+  (:require
+    [clj-yaml.core :as yaml]
+    [flatland.ordered.map :refer [ordered-map]]))
 
-(defn jvm []
-  (ordered-map
-   :docker [{:image "circleci/clojure:openjdk-11-lein-2.9.8-bullseye"}]
-   :working_directory "~/repo"
-   :environment  {:LEIN_ROOT "true"
-                  :BABASHKA_PLATFORM "linux"}
-   :resources_class "large"
-   :steps ["checkout"
-           {:run {:name "Pull Submodules"
-                  :command "git submodule init && git submodule update"}}]))
+(defn run
+  ([cmd-name cmd]
+   (run cmd-name cmd nil))
+  ([cmd-name cmd no-output-timeout]
+   (let [base {:run {:name    cmd-name
+                     :command cmd}}]
+     (if no-output-timeout
+       (assoc-in base [:run :no_output_timeout] no-output-timeout)
+       base))))
 
-(defn linux []
+(defn jvm
+  []
   (ordered-map
-   :docker [{:image "circleci/clojure:openjdk-11-lein-2.9.8-bullseye"}]
-   :working_directory "~/repo"
-   :environment  {:LEIN_ROOT "true"
-                  :GRAALVM_VERSION "22.1.0"
-                  :GRAALVM_HOME "/home/circleci/graalvm-ce-java11-22.1.0"
-                  :BABASHKA_PLATFORM "linux"
-                  :BABASHKA_TEST_ENV "native"
-                  :BABASHKA_XMX "-J-Xmx6500m"}
-   :resource_class "large"
-   :steps ["checkout"
-           {:run {:name "Pull Submodules"
-                  :command "git submodule init && git submodule update"}}
-           {:restore_cache {:keys ["linux-{{ checksum \"project.clj\" }}-{{ checksum \".circleci/config.yml\" }}"]}}
-           {:run {:name "Install native dev tools"
-                  :command "sudo apt-get update && sudo apt-get -y install build-essential zlib1g-dev"}}
-           {:run {:name "Download GraalVM"
-                  :command "script/install-graalvm"}}
-           {:run {:name "Build binary"
-                  :command "script/uberjar && script/compile"
-                  :no_output_timeout "30m"}}
-           {:run {:name "Run tests"
-                  :command "script/test && script/run_lib_tests"}}
-           {:run {:name "Release"
-                  :command ".circleci/script/release"}}]))
+    :docker            [{:image "circleci/clojure:openjdk-11-lein-2.9.8-bullseye"}]
+    :working_directory "~/repo"
+    :environment       {:LEIN_ROOT         "true"
+                        :BABASHKA_PLATFORM "linux"}
+    :resources_class   "large"
+    :steps             [:checkout
+                        (run "Pull Submodules" "git submodule init && git submodule update")]))
+
+(defn linux
+  []
+  (ordered-map
+    :docker            [{:image "circleci/clojure:openjdk-11-lein-2.9.8-bullseye"}]
+    :working_directory "~/repo"
+    :environment       {:LEIN_ROOT         "true"
+                        :GRAALVM_VERSION   "22.1.0"
+                        :GRAALVM_HOME      "/home/circleci/graalvm-ce-java11-22.1.0"
+                        :BABASHKA_PLATFORM "linux"
+                        :BABASHKA_TEST_ENV "native"
+                        :BABASHKA_XMX      "-J-Xmx6500m"}
+    :resource_class    "large"
+    :steps             [:checkout
+                        (run "Pull Submodules" "git submodule init\ngit submodule update")
+                        {:restore_cache
+                         {:keys ["linux-{{ checksum \"project.clj\" }}-{{ checksum \".circleci/config.yml\" }}"]}}
+                        (run "Install native dev tools"
+                             "sudo apt-get update\nsudo apt-get -y install build-essential zlib1g-dev")
+                        (run "Download GraalVM" "script/install-graalvm")
+                        (run "Build binary" "script/uberjar\nscript/compile" "30m")
+                        (run "Run tests" "script/test\nscript/run_lib_tests")
+                        (run "Release" ".circleci/script/release")
+                        {:persist_to_workspace {:root  "/tmp"
+                                                :paths ["release"]}}
+                        {:save_cache {:paths ["~/.m2" "~/graalvm-ce-java11-22.1.0"]
+                                      :key
+                                      "linux-{{ checksum \"project.clj\" }}-{{ checksum \".circleci/config.yml\" }}"}}
+                        {:store_artifacts {:paths       "/tmp/release"
+                                           :destination "release"}}
+                        (run "Publish artifact link to Slack" "./bb .circleci/script/publish_artifact.clj || true")]))
 
 (def config
   (ordered-map
-   :version 2.1,
-   :commands {:setup-docker-buildx {:steps [{:run {:name "Create multi-platform capabale buildx builder",
-                                                   :command "docker run --privileged --rm tonistiigi/binfmt --install all docker buildx create --name ci-builder --use"}}]}}
-   :jobs (ordered-map
-          :jvm (jvm)
-          :linux (linux)),
-   :workflows (ordered-map
-               :version 2
-               :ci {:jobs ["jvm"
-                           "linux"
-                           "linux-static"
-                           "mac"
-                           "linux-aarch64"
-                           "linux-aarch64-static"
-                           {:deploy {:filters {:branches {:only "master"}}
-                                     :requires ["jvm" "linux"]}}
-                           {:docker {:filters {:branches {:only "master"}}
-                                     :requires ["linux" "linux-static" "linux-aarch64"]}}]})))
+    :version   2.1
+    :commands
+    {:setup-docker-buildx
+     {:steps
+      [{:run
+        {:name    "Create multi-platform capabale buildx builder"
+         :command
+         "docker run --privileged --rm tonistiigi/binfmt --install all\ndocker buildx create --name ci-builder --use"}}]}}
+    :jobs      (ordered-map
+                 :jvm   (jvm)
+                 :linux (linux))
+    :workflows (ordered-map
+                 :version 2
+                 :ci      {:jobs ["jvm"
+                                  "linux"
+                                  "linux-static"
+                                  "mac"
+                                  "linux-aarch64"
+                                  "linux-aarch64-static"
+                                  {:deploy {:filters  {:branches {:only "master"}}
+                                            :requires ["jvm" "linux"]}}
+                                  {:docker {:filters  {:branches {:only "master"}}
+                                            :requires ["linux" "linux-static" "linux-aarch64"]}}]})))
 
-(spit "foo.yml"
-      (str "# This file is generated by script/generate_circleci.clj. Please do not edit here."
-
-           (yaml/generate-string config
-                                 :dumper-options {:flow-style :block}))) 
+(comment
+  (spit "foo.yml"
+        (yaml/generate-string config
+                              :dumper-options
+                              {:flow-style :block})))
