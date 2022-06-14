@@ -13,6 +13,23 @@
        (assoc-in base [:run :no_output_timeout] no-output-timeout)
        base))))
 
+(defn pull-submodules []
+  (run "Pull Submodules" "git submodule init /n git submodule update"))
+
+(defn deploy []
+  (ordered-map
+   :resource_class "large"
+   :docker [:image "circleci/clojure:lein-2.9.8"]
+   :working_directory "~/repo"
+   :environment {:LEIN_ROOT "true"}
+   :steps ["checkout"
+           (pull-submodules)
+           {:restore_cache {:keys ["v1-dependencies-{{ checksum \"project.clj\" }}"
+                                   "v1-dependencies-"]}}
+           {:run ".circleci/script/deploy"}
+           {:save_cache {:paths ["~/.m2"]
+                         :key "v1-dependencies-{{ checksum \"project.clj\" }}"}}]))
+
 (defn jvm
   []
   (ordered-map
@@ -22,7 +39,7 @@
                        :BABASHKA_PLATFORM "linux"}
    :resources_class   "large"
    :steps             [:checkout
-                       (run "Pull Submodules" "git submodule init /n git submodule update")
+                       (pull-submodules)
                        {:restore_cache {:keys ["v1-dependencies-{{ checksum \"project.clj\" }}-{{ checksum \"deps.edn\" }}"
                                                "v1-dependencies-"]}}
                        (run "Install Clojure" "sudo script/install-clojure")
@@ -49,7 +66,7 @@ java -jar \"$jar\" --config .build/bb.edn --deps-root . release-artifact \"$refl
                        :BABASHKA_XMX      "-J-Xmx6500m"}
    :resource_class    "large"
    :steps             [:checkout
-                       (run "Pull Submodules" "git submodule init\ngit submodule update")
+                       (pull-submodules)
                        {:restore_cache
                         {:keys ["linux-{{ checksum \"project.clj\" }}-{{ checksum \".circleci/config.yml\" }}"]}}
                        (run "Install native dev tools"
@@ -79,7 +96,8 @@ java -jar \"$jar\" --config .build/bb.edn --deps-root . release-artifact \"$refl
         "docker run --privileged --rm tonistiigi/binfmt --install all\ndocker buildx create --name ci-builder --use"}}]}}
    :jobs      (ordered-map
                :jvm   (jvm)
-               :linux (linux))
+               :linux (linux)
+               :deploy (deploy))
    :workflows (ordered-map
                :version 2
                :ci      {:jobs ["jvm"
