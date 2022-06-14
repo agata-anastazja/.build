@@ -22,6 +22,9 @@
 
 ;; TODO: generate config from clojure 
 (defn write-config [path]
+  (println  path)
+
+  (println (io/resource path))
   (println (slurp (io/resource path))))
 
 (defn main
@@ -34,12 +37,13 @@
         (write-config "circleci/actual.yml"))
       (do
         (println "Irrelevant changes - skipping CI run.")
-        (write-config "circleci/shorted.yml")))))
+        (write-config "BABASHKA_VERSION")))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (main))
 
 (comment
+  (main)
   (def regexes
     [#".*.md$"
      #".*.clj$"]) ; ignore clojure files
