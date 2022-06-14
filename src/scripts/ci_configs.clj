@@ -14,12 +14,12 @@
        base))))
 
 (defn pull-submodules []
-  (run "Pull Submodules" "git submodule init /n git submodule update"))
+  (run "Pull Submodules" "git submodule init\ngit submodule update"))
 
 (defn deploy []
   (ordered-map
    :resource_class "large"
-   :docker [:image "circleci/clojure:lein-2.9.8"]
+   :docker [{:image "circleci/clojure:lein-2.9.8"}]
    :working_directory "~/repo"
    :environment {:LEIN_ROOT "true"}
    :steps ["checkout"
@@ -29,6 +29,19 @@
            {:run ".circleci/script/deploy"}
            {:save_cache {:paths ["~/.m2"]
                          :key "v1-dependencies-{{ checksum \"project.clj\" }}"}}]))
+
+(defn docker
+  []
+  (ordered-map
+   :machine {:image "ubuntu-2004:202111-01"}
+   :steps ["checkout"
+           (pull-submodules)
+           "setup-docker-buildx"
+           {:attach_workspace {:at "/tmp"}}
+           (run "Build uberjar" "script/uberjar")
+           {:run {:name "Build Docker image"
+                  :environment {:PLATFORMS "linux/amd64,linux/arm64"}
+                  :command "java -jar ./target/babashka-$(cat resources/BABASHKA_VERSION)-standalone.jar .circleci/script/docker.clj"}}]))
 
 (defn jvm
   []
@@ -97,7 +110,8 @@ java -jar \"$jar\" --config .build/bb.edn --deps-root . release-artifact \"$refl
    :jobs      (ordered-map
                :jvm   (jvm)
                :linux (linux)
-               :deploy (deploy))
+               :deploy (deploy)
+               :docker (docker))
    :workflows (ordered-map
                :version 2
                :ci      {:jobs ["jvm"
@@ -116,3 +130,4 @@ java -jar \"$jar\" --config .build/bb.edn --deps-root . release-artifact \"$refl
         (yaml/generate-string config
                               :dumper-options
                               {:flow-style :block})))
+                              
